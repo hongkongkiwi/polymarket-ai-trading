@@ -1,4 +1,6 @@
 import { Hono } from "hono";
+import { basicAuth } from "hono/basic-auth";
+import { HTTPException } from "hono/http-exception";
 import { initDB } from "./db";
 import { ensureSettings } from "./lib/store";
 import { fetchGammaMarkets } from "./lib/gamma";
@@ -12,6 +14,9 @@ import type { Settings } from "../shared/types";
 type Env = {
   Bindings: {
     DB: D1Database;
+    ASSETS: Fetcher;
+    DASHBOARD_USERNAME?: string;
+    DASHBOARD_PASSWORD?: string;
     OPENROUTER_API_KEY?: string;
     POLYMARKET_MODEL?: string;
     RELAYER_API_KEY?: string;
@@ -24,15 +29,52 @@ const app = new Hono<Env>();
 // Surface real error messages instead of Hono's opaque 500 so the dashboard
 // toast (and logs) say what actually failed.
 app.onError((err, c) => {
+  if (err instanceof HTTPException) return err.getResponse();
   console.error("[api error]", err);
   const message = err instanceof Error ? err.message : String(err);
   return c.json({ error: message }, 500);
 });
 
-// The tables come from src/server/schema.sql, applied by the Clawnify build
-// pipeline on deploy (and by the `dev` script locally). Here we just bind the
-// DB and make sure the single settings row exists.
 app.use("*", async (c, next) => {
+  c.header("Cache-Control", "no-store");
+  c.header("X-Content-Type-Options", "nosniff");
+  c.header("X-Frame-Options", "DENY");
+  c.header("Referrer-Policy", "no-referrer");
+  const username = c.env.DASHBOARD_USERNAME;
+  const password = c.env.DASHBOARD_PASSWORD;
+  if (!username || !password) return c.json({ error: "Dashboard access is not configured." }, 503);
+  await basicAuth({ username, password, realm: "Paper trading" })(c, next);
+  c.header("Cache-Control", "no-store");
+  c.header("X-Content-Type-Options", "nosniff");
+  c.header("X-Frame-Options", "DENY");
+  c.header("Referrer-Policy", "no-referrer");
+});
+
+app.use("*", async (c, next) => {
+  let path: string;
+  try {
+    path = decodeURI(new URL(c.req.url).pathname);
+  } catch {
+    return c.json({ error: "Invalid request path." }, 400);
+  }
+  if (path !== "/api" && !path.startsWith("/api/")) {
+    return c.env.ASSETS.fetch(c.req.raw);
+  }
+  if (!["GET", "HEAD", "OPTIONS"].includes(c.req.method)) {
+    const origin = c.req.header("Origin");
+    if (origin && origin !== new URL(c.req.url).origin) {
+      return c.json({ error: "Cross-origin writes are not allowed." }, 403);
+    }
+  }
+  if (path === "/api/settings" && c.req.method === "PUT") {
+    const patch = await c.req.raw.clone().json().catch(() => null) as Partial<Settings> | null;
+    if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
+      return c.json({ error: "A settings object is required." }, 400);
+    }
+    if (patch.mode !== undefined && patch.mode !== "paper") {
+      return c.json({ error: "This deployment supports paper trading only." }, 400);
+    }
+  }
   initDB(c.env);
   await ensureSettings();
   await next();
@@ -113,5 +155,7 @@ app.post("/api/reset", async (c) => {
   await resetPaper(bankroll && bankroll > 0 ? bankroll : 1000);
   return c.json({ ok: true, stats: await getStats() });
 });
+
+app.notFound((c) => c.json({ error: "Not found." }, 404));
 
 export default app;

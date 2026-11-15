@@ -1,9 +1,17 @@
-name = "polymarket-ai-trading"
+name = "pm-ai-trading"
 main = "src/server/index.ts"
+account_id = "26190ad071ab644c41c1a064dca5e643"
 compatibility_date = "2025-04-01"
 compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+run_worker_first = true
+not_found_handling = "single-page-application"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "polymarket-ai-trading-db"
-database_id = "local"
+database_name = "pm-ai-trading-db"
+database_id = "22b97722-59a0-4f4b-a099-9830590a146c"
