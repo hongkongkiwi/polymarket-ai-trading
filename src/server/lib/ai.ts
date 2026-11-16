@@ -26,6 +26,29 @@ function modelOf(env: Record<string, string | undefined>): string {
   return env.POLYMARKET_MODEL || DEFAULT_MODEL;
 }
 
+function aiRoute(env: Record<string, string | undefined>): { url: string; headers: Record<string, string> } {
+  const account = env.AI_GATEWAY_ACCOUNT_ID;
+  const gateway = env.AI_GATEWAY_ID;
+  if (account === undefined && gateway === undefined) {
+    return { url: "https://openrouter.ai/api/v1/chat/completions", headers: {} };
+  }
+  if (!account || !/^[a-fA-F0-9]{32}$/.test(account) ||
+      !gateway || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(gateway)) {
+    throw new Error("AI unavailable: invalid AI Gateway configuration.");
+  }
+  const token = env.CF_AIG_TOKEN?.trim();
+  if (!token) throw new Error("AI unavailable: CF_AIG_TOKEN is not set.");
+  return {
+    url: `https://gateway.ai.cloudflare.com/v1/${account}/${gateway}/openrouter/chat/completions`,
+    headers: {
+      "cf-aig-authorization": `Bearer ${token}`,
+      "cf-aig-collect-log": "false",
+      "cf-aig-collect-log-payload": "false",
+      "cf-aig-skip-cache": "true",
+    },
+  };
+}
+
 async function openrouterJSON(
   env: Record<string, string | undefined>,
   system: string,
@@ -33,13 +56,15 @@ async function openrouterJSON(
 ): Promise<Record<string, unknown>> {
   const apiKey = env.OPENROUTER_API_KEY;
   if (!apiKey) throw new Error("AI unavailable: OPENROUTER_API_KEY is not set.");
-  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+  const route = aiRoute(env);
+  const res = await fetch(route.url, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
       "HTTP-Referer": "https://clawnify.com",
       "X-Title": "Polymarket AI Trader",
+      ...route.headers,
     },
     body: JSON.stringify({
       model: modelOf(env),
@@ -52,8 +77,8 @@ async function openrouterJSON(
     }),
   });
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`OpenRouter error ${res.status}: ${text.slice(0, 300)}`);
+    await res.body?.cancel();
+    throw new Error(`AI provider request failed via ${route.headers["cf-aig-authorization"] ? "gateway" : "direct"} (${res.status}).`);
   }
   const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
   const content = data.choices?.[0]?.message?.content || "{}";

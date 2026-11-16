@@ -20,6 +20,9 @@ type Env = {
     ACCESS_EMAIL?: string;
     OPENROUTER_API_KEY?: string;
     POLYMARKET_MODEL?: string;
+    AI_GATEWAY_ACCOUNT_ID?: string;
+    AI_GATEWAY_ID?: string;
+    CF_AIG_TOKEN?: string;
     RELAYER_API_KEY?: string;
     RELAYER_API_KEY_ADDRESS?: string;
   };

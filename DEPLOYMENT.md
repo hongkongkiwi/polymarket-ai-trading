@@ -12,6 +12,8 @@ Cloudflare Access protects the Worker's production and preview traffic. The `pm-
 
 This deployment accepts paper mode only. No relayer credentials or OpenRouter key are configured. There is no cron trigger. Market browsing uses Polymarket's public Gamma API. Paper fills use quoted prices, not an order-book execution model.
 
+Optional AI Gateway transport is documented in [AI_GATEWAY.md](AI_GATEWAY.md). Gateway provisioning and runtime secrets are not configured. Inference remains disabled until provider credentials are supplied. [GAP_ANALYSIS.md](GAP_ANALYSIS.md) records the remaining accounting, simulation and operations gaps.
+
 ## Checks and deployment
 
 Run from this repository:
@@ -22,6 +24,7 @@ pnpm run typecheck
 node tests/run.mjs
 node tests/run.mjs ./hardening.test.ts
 node tests/run.mjs ./access.test.ts
+node tests/run.mjs ./ai-gateway.test.ts
 pnpm run build
 npx wrangler deploy --dry-run
 ```
