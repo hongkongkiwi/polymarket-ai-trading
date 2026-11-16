@@ -1,14 +1,9 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { after } from "node:test";
 import app from "../src/server/index";
+import { accessEnv, assertion, mockAccessFetch } from "./access-fixture";
 
-const credentials = {
-  DASHBOARD_USERNAME: "deployment-test-user",
-  DASHBOARD_PASSWORD: "deployment-test-password",
-};
-const basic = (username: string, password: string) =>
-  `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`;
-const authorization = basic(credentials.DASHBOARD_USERNAME, credentials.DASHBOARD_PASSWORD);
+after(mockAccessFetch());
 
 function bindings({ rejectDB = false } = {}) {
   const calls = { db: 0, assets: [] as Request[] };
@@ -19,7 +14,7 @@ function bindings({ rejectDB = false } = {}) {
     async all() { return { results: [] }; },
   };
   const env = {
-    ...credentials,
+    ...accessEnv,
     DB: {
       prepare() {
         calls.db++;
@@ -40,37 +35,36 @@ function bindings({ rejectDB = false } = {}) {
 }
 
 for (const { name, path, missing } of [
-  { name: "both credentials", path: "/", missing: ["DASHBOARD_USERNAME", "DASHBOARD_PASSWORD"] },
-  { name: "username", path: "/assets/dashboard.js", missing: ["DASHBOARD_USERNAME"] },
-  { name: "password", path: "/api/settings", missing: ["DASHBOARD_PASSWORD"] },
+  { name: "all Access configuration", path: "/", missing: ["ACCESS_ISSUER", "ACCESS_AUD", "ACCESS_EMAIL"] },
+  { name: "issuer", path: "/assets/dashboard.js", missing: ["ACCESS_ISSUER"] },
+  { name: "audience", path: "/api/settings", missing: ["ACCESS_AUD"] },
+  { name: "email", path: "/api/settings", missing: ["ACCESS_EMAIL"] },
 ]) {
   test(`missing configured ${name} returns 503 before DB or assets`, async () => {
     const { env, calls } = bindings({ rejectDB: true });
-    for (const key of missing) delete env[key as keyof typeof credentials];
-    const response = await app.request(path, { headers: { Authorization: authorization } }, env);
+    for (const key of missing) delete env[key as keyof typeof accessEnv];
+    const response = await app.request(path, { headers: { "Cf-Access-Jwt-Assertion": assertion } }, env);
     assert.equal(response.status, 503);
     assert.equal(calls.db, 0);
     assert.equal(calls.assets.length, 0);
   });
 }
 
-for (const { name, path, header } of [
-  { name: "dashboard without credentials", path: "/" },
-  { name: "asset without credentials", path: "/assets/dashboard.js" },
-  { name: "API root without credentials", path: "/api" },
-  { name: "API settings without credentials", path: "/api/settings" },
-  { name: "unknown API without credentials", path: "/api/does-not-exist" },
-  { name: "wrong username", path: "/api/settings", header: basic("wrong-user", credentials.DASHBOARD_PASSWORD) },
-  { name: "wrong password", path: "/assets/dashboard.js", header: basic(credentials.DASHBOARD_USERNAME, "wrong-password") },
-  { name: "non-Basic authorization", path: "/", header: "Bearer not-basic" },
+for (const { name, path, headers } of [
+  { name: "dashboard without assertion", path: "/" },
+  { name: "asset without assertion", path: "/assets/dashboard.js" },
+  { name: "API root without assertion", path: "/api" },
+  { name: "API settings without assertion", path: "/api/settings" },
+  { name: "unknown API without assertion", path: "/api/does-not-exist" },
+  { name: "invalid assertion", path: "/api/settings", headers: { "Cf-Access-Jwt-Assertion": "invalid" } },
+  { name: "forged email header", path: "/assets/dashboard.js", headers: { "Cf-Access-Authenticated-User-Email": accessEnv.ACCESS_EMAIL } },
+  { name: "Basic authorization", path: "/", headers: { Authorization: `Basic ${Buffer.from(crypto.randomUUID()).toString("base64")}` } },
 ]) {
-  test(`${name} returns 401 with Basic challenge before DB or assets`, async () => {
+  test(`${name} returns 401 without challenge before DB or assets`, async () => {
     const { env, calls } = bindings({ rejectDB: true });
-    const response = await app.request(path, {
-      headers: header ? { Authorization: header } : {},
-    }, env);
+    const response = await app.request(path, { headers }, env);
     assert.equal(response.status, 401);
-    assert.match(response.headers.get("WWW-Authenticate") ?? "", /^Basic\b/i);
+    assert.equal(response.headers.get("WWW-Authenticate"), null);
     assert.equal(calls.db, 0);
     assert.equal(calls.assets.length, 0);
   });
@@ -79,7 +73,7 @@ for (const { name, path, header } of [
 for (const path of ["/", "/assets/dashboard.js?version=1"]) {
   test(`valid credentials serve ${path} through ASSETS`, async () => {
     const { env, calls } = bindings();
-    const response = await app.request(path, { headers: { Authorization: authorization } }, env);
+    const response = await app.request(path, { headers: { "Cf-Access-Jwt-Assertion": assertion } }, env);
     assert.equal(response.status, 200);
     assert.equal(await response.text(), "dashboard asset fixture");
     assert.equal(response.headers.get("X-Asset-Fixture"), "served");
@@ -91,7 +85,7 @@ for (const path of ["/", "/assets/dashboard.js?version=1"]) {
 for (const path of ["/api", "/api/does-not-exist"]) {
   test(`authenticated unknown route ${path} returns JSON 404 instead of SPA`, async () => {
     const { env, calls } = bindings();
-    const response = await app.request(path, { headers: { Authorization: authorization } }, env);
+    const response = await app.request(path, { headers: { "Cf-Access-Jwt-Assertion": assertion } }, env);
     assert.equal(response.status, 404);
     assert.match(response.headers.get("Content-Type") ?? "", /^application\/json\b/i);
     const body = await response.json();
@@ -105,7 +99,7 @@ test("authenticated live mode is rejected before DB access", async () => {
   const { env, calls } = bindings({ rejectDB: true });
   const response = await app.request("/api/settings", {
     method: "PUT",
-    headers: { Authorization: authorization, "Content-Type": "application/json" },
+    headers: { "Cf-Access-Jwt-Assertion": assertion, "Content-Type": "application/json" },
     body: JSON.stringify({ mode: "live" }),
   }, env);
   assert.equal(response.status, 400);
@@ -117,7 +111,7 @@ test("authenticated paper mode remains editable", async () => {
   const { env, calls } = bindings();
   const response = await app.request("/api/settings", {
     method: "PUT",
-    headers: { Authorization: authorization, "Content-Type": "application/json" },
+    headers: { "Cf-Access-Jwt-Assertion": assertion, "Content-Type": "application/json" },
     body: JSON.stringify({ mode: "paper" }),
   }, env);
   assert.equal(response.status, 200);
