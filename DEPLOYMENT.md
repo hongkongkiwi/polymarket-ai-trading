@@ -55,4 +55,3 @@ The live API confirmed application `ae5e3921-5786-4004-8ddb-83b0da91539d`, audie
 All 64 tests, TypeScript, production build, and Worker dry run passed. Security review found no source defects; live API checks confirmed issuer and audience. Deployment version: `58e6d1ca-16c0-44a9-810b-de7fd0c3498f`. Unauthenticated requests redirect to Cloudflare Access. The API confirms preview URLs are disabled.
 
 The Edge browser reached the login page with Cloudflare and email-code choices, but subsequent browser actions timed out. A complete authenticated browser session has not been verified. No MFA or login code was bypassed.
-
