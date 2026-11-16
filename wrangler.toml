@@ -4,6 +4,12 @@ account_id = "26190ad071ab644c41c1a064dca5e643"
 compatibility_date = "2025-04-01"
 compatibility_flags = ["nodejs_compat"]
 workers_dev = true
+preview_urls = false
+
+[vars]
+ACCESS_ISSUER = "https://quiet-heart-ed97.cloudflareaccess.com"
+ACCESS_AUD = "b2bd1ec542aa1d43349bd17a9d93e6937231ee4511d9e1435403561d7298c916"
+ACCESS_EMAIL = "andy+cloudflare@savage.hk"
 
 [assets]
 directory = "./dist"

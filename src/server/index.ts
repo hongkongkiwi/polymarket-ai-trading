@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { basicAuth } from "hono/basic-auth";
+import { createAccessVerifier } from "./lib/access";
 import { HTTPException } from "hono/http-exception";
 import { initDB } from "./db";
 import { ensureSettings } from "./lib/store";
@@ -15,8 +15,9 @@ type Env = {
   Bindings: {
     DB: D1Database;
     ASSETS: Fetcher;
-    DASHBOARD_USERNAME?: string;
-    DASHBOARD_PASSWORD?: string;
+    ACCESS_ISSUER?: string;
+    ACCESS_AUD?: string;
+    ACCESS_EMAIL?: string;
     OPENROUTER_API_KEY?: string;
     POLYMARKET_MODEL?: string;
     RELAYER_API_KEY?: string;
@@ -25,6 +26,7 @@ type Env = {
 };
 
 const app = new Hono<Env>();
+const verifyAccess = createAccessVerifier();
 
 // Surface real error messages instead of Hono's opaque 500 so the dashboard
 // toast (and logs) say what actually failed.
@@ -40,10 +42,10 @@ app.use("*", async (c, next) => {
   c.header("X-Content-Type-Options", "nosniff");
   c.header("X-Frame-Options", "DENY");
   c.header("Referrer-Policy", "no-referrer");
-  const username = c.env.DASHBOARD_USERNAME;
-  const password = c.env.DASHBOARD_PASSWORD;
-  if (!username || !password) return c.json({ error: "Dashboard access is not configured." }, 503);
-  await basicAuth({ username, password, realm: "Paper trading" })(c, next);
+  const status = await verifyAccess(c.req.raw, c.env);
+  if (status === 503) return c.json({ error: "Cloudflare Access is not configured." }, 503);
+  if (status !== 200) return c.json({ error: "Cloudflare Access authentication required." }, 401);
+  await next();
   c.header("Cache-Control", "no-store");
   c.header("X-Content-Type-Options", "nosniff");
   c.header("X-Frame-Options", "DENY");
