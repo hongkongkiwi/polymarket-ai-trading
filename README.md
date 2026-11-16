@@ -75,23 +75,23 @@ Strategy parameters — bankroll, Kelly fraction, position/exposure caps, signal
 
 ## API
 
-All routes sit behind the Clawnify perimeter (your dashboard and your AI employee reach them with injected identity).
+All routes require Cloudflare Access. The Worker verifies the signed application assertion and approved email before serving data. See [DEPLOYMENT.md](DEPLOYMENT.md) for configuration.
 
 | Method | Path | Does |
 |---|---|---|
 | `GET` | `/api/markets?limit=` | live, quality-scored markets |
 | `GET` | `/api/signals` | current mean-reversion signals |
 | `GET` | `/api/stats` · `/api/positions` · `/api/trades` | portfolio + ledger |
-| `GET` · `PUT` | `/api/settings` | strategy configuration |
+| `GET` · `PUT` | `/api/settings` | read configuration; patch changed fields with current `revision` and `paperEpoch`, stale writes return 409 |
 | `POST` | `/api/cycle` | run one paper-trading cycle |
 | `POST` | `/api/mark` | mark open positions to market + settle resolved |
 | `POST` | `/api/positions/:id/close` | manually close a position |
 | `POST` | `/api/analyze` | AI fair-value analysis of a market |
-| `POST` | `/api/reset` | wipe the paper ledger |
+| `POST` | `/api/reset` | start a new paper session with explicit `bankroll` and current `paperEpoch`; retain history |
 
 ## Going live (the execution seam)
 
-Everything runs in **paper** mode. All execution flows through a single `Executor` interface (`src/server/lib/executor.ts`):
+Everything runs in paper mode. The engine uses `src/server/lib/paper-ledger.ts` for atomic simulated accounting. The legacy `Executor` interface (`src/server/lib/executor.ts`) is not used by the engine:
 
 - `PaperExecutor` fills instantly at the quoted price — no money moves.
 - `LiveExecutor` is a **guarded stub**. It refuses to run without `RELAYER_API_KEY` + `RELAYER_API_KEY_ADDRESS` and explicit live mode, and throws until the Polymarket CLOB relayer integration is implemented **and audited**. Switching a deployment to real trading is a change in one file — not a rewrite of the strategy — and is left as a deliberate, reviewable step.

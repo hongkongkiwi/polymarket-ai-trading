@@ -45,6 +45,7 @@ export interface Signal {
 export interface Trade {
   id: number;
   mode: TradingMode;
+  paperEpoch: number;
   marketId: string;
   question: string;
   side: Side;
@@ -64,6 +65,8 @@ export interface Trade {
 /** Per-org strategy + safety configuration (single row). */
 export interface Settings {
   mode: TradingMode;
+  paperEpoch: number;
+  revision: number;
   bankroll: number;
   kellyFraction: number;
   maxPositions: number;
@@ -77,6 +80,8 @@ export interface Settings {
   killSwitch: boolean;
 }
 
+export type SettingsPatch = Partial<Omit<Settings, "revision" | "paperEpoch">> & Pick<Settings, "revision" | "paperEpoch">;
+
 /** Portfolio rollup for the dashboard KPI row. */
 export interface Stats {
   bankroll: number;
@@ -87,4 +92,5 @@ export interface Stats {
   realizedPnl: number;
   winRate: number;
   mode: TradingMode;
+  paperEpoch: number;
 }

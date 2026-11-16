@@ -12,7 +12,7 @@ Cloudflare Access protects the Worker's production and preview traffic. The `pm-
 
 This deployment accepts paper mode only. No relayer credentials or OpenRouter key are configured. There is no cron trigger. Market browsing uses Polymarket's public Gamma API. Paper fills use quoted prices, not an order-book execution model.
 
-Optional AI Gateway transport is documented in [AI_GATEWAY.md](AI_GATEWAY.md). Gateway provisioning and runtime secrets are not configured. Inference remains disabled until provider credentials are supplied. [GAP_ANALYSIS.md](GAP_ANALYSIS.md) records the remaining accounting, simulation and operations gaps.
+AI Gateway transport is documented in [AI_GATEWAY.md](AI_GATEWAY.md). Gateway `pm-openrouter` and its run-only Worker secret are provisioned. Inference remains disabled until provider credentials are supplied. [GAP_ANALYSIS.md](GAP_ANALYSIS.md) records the remaining accounting, simulation and operations gaps.
 
 ## Checks and deployment
 
@@ -21,22 +21,20 @@ Run from this repository:
 ```sh
 pnpm install --frozen-lockfile --ignore-scripts
 pnpm run typecheck
-node tests/run.mjs
-node tests/run.mjs ./hardening.test.ts
-node tests/run.mjs ./access.test.ts
-node tests/run.mjs ./ai-gateway.test.ts
+pnpm test
 pnpm run build
 npx wrangler deploy --dry-run
 ```
 
-No lint command is configured upstream. Before a first deployment, apply `src/server/schema.sql` to the dedicated D1 database. The current database is already initialized. Do not reinitialize or reset an existing ledger without checking its contents.
+No lint command is configured upstream. Before a first deployment, apply `src/server/schema.sql`, then tracked D1 migrations. For an existing ledger, follow [LEDGER_MIGRATION.md](LEDGER_MIGRATION.md); code and accounting triggers must be upgraded together under maintenance. Do not reinitialize or reset an existing ledger without checking its contents.
 
 ```sh
 npx wrangler d1 execute pm-ai-trading-db --remote --file src/server/schema.sql
+npx wrangler d1 migrations apply pm-ai-trading-db --remote
 npx wrangler deploy
 ```
 
-The upstream `dev` script still names the upstream database. For this fork, initialize local storage with `wrangler d1 execute pm-ai-trading-db --local --file src/server/schema.sql`, build assets, and use `wrangler dev`. Local requests also require a valid Access assertion for the configured application. There is no local Basic-auth bypass. Authentication tests generate temporary signing keys and never use a production session.
+The `dev` script initializes the project database and applies local migrations before starting Vite and Wrangler. Production uses a native request-bound D1 binding; the Clawnify preview storage adapter is no longer used. Local requests also require a valid Access assertion for the configured application. There is no local Basic-auth bypass. Authentication tests generate temporary signing keys and never use a production session.
 
 ## Verification on 2026-11-15
 

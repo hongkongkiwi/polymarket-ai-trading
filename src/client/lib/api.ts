@@ -1,4 +1,4 @@
-import type { Market, Signal, Trade, Settings, Stats } from "../../shared/types";
+import type { Market, Signal, Trade, Settings, SettingsPatch, Stats } from "../../shared/types";
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
@@ -29,7 +29,7 @@ export interface CycleResult {
 export const api = {
   stats: () => req<Stats>("/api/stats"),
   settings: () => req<Settings>("/api/settings"),
-  saveSettings: (patch: Partial<Settings>) =>
+  saveSettings: (patch: SettingsPatch) =>
     req<Settings>("/api/settings", { method: "PUT", body: JSON.stringify(patch) }),
   markets: (limit = 60) => req<{ markets: Market[] }>(`/api/markets?limit=${limit}`).then((r) => r.markets),
   signals: () => req<{ signals: Signal[] }>("/api/signals").then((r) => r.signals),
@@ -41,6 +41,6 @@ export const api = {
     req<{ trade: Trade; stats: Stats }>(`/api/positions/${id}/close`, { method: "POST" }),
   analyze: (question: string, yesPrice: number | null) =>
     req<Analysis>("/api/analyze", { method: "POST", body: JSON.stringify({ question, yesPrice }) }),
-  reset: (bankroll?: number) =>
-    req<{ ok: true; stats: Stats }>("/api/reset", { method: "POST", body: JSON.stringify({ bankroll }) }),
+  reset: (bankroll: number, paperEpoch: number) =>
+    req<{ ok: true; stats: Stats }>("/api/reset", { method: "POST", body: JSON.stringify({ bankroll, paperEpoch }) }),
 };

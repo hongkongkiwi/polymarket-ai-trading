@@ -158,7 +158,7 @@ export function HistoryTable({ trades }: { trades: Trade[] }) {
         <tfoot>
           <tr className="border-t border-border">
             <Td className="text-[12px] text-muted">{closed.length} closed</Td>
-            <Td /><Td /><Td /><Td right><span className="text-[12px] text-muted">Realized</span></Td>
+            <Td /><Td /><Td /><Td right><span className="text-[12px] text-muted">Shown history P&amp;L</span></Td>
             <Td right className={pnlTone(realized)}>{signedUsd(realized)}</Td>
             <Td />
           </tr>

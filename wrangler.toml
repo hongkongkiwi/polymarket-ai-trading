@@ -10,6 +10,8 @@ preview_urls = false
 ACCESS_ISSUER = "https://quiet-heart-ed97.cloudflareaccess.com"
 ACCESS_AUD = "b2bd1ec542aa1d43349bd17a9d93e6937231ee4511d9e1435403561d7298c916"
 ACCESS_EMAIL = "andy+cloudflare@savage.hk"
+AI_GATEWAY_ACCOUNT_ID = "26190ad071ab644c41c1a064dca5e643"
+AI_GATEWAY_ID = "pm-openrouter"
 
 [assets]
 directory = "./dist"

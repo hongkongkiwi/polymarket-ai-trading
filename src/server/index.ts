@@ -1,19 +1,22 @@
 import { Hono } from "hono";
 import { createAccessVerifier } from "./lib/access";
 import { HTTPException } from "hono/http-exception";
-import { initDB } from "./db";
+import { createDb } from "./db";
+import type { SqlDb } from "./lib/paper-ledger";
 import { ensureSettings } from "./lib/store";
 import { fetchGammaMarkets } from "./lib/gamma";
 import { toMarket } from "./lib/quality";
 import { findSignals } from "./lib/signals";
 import { analyzeMarket } from "./lib/ai";
-import { getSettings, updateSettings, getStats, listTrades, listOpenTrades } from "./lib/store";
+import { getSettings, updateSettings, getStats, listTrades, listOpenTrades, SettingsError } from "./lib/store";
 import { runCycle, markToMarket, closeTrade, resetPaper } from "./lib/engine";
 import type { Settings } from "../shared/types";
 
 type Env = {
+  Variables: { db: SqlDb };
   Bindings: {
     DB: D1Database;
+    LEDGER_MAINTENANCE?: string;
     ASSETS: Fetcher;
     ACCESS_ISSUER?: string;
     ACCESS_AUD?: string;
@@ -35,6 +38,7 @@ const verifyAccess = createAccessVerifier();
 // toast (and logs) say what actually failed.
 app.onError((err, c) => {
   if (err instanceof HTTPException) return err.getResponse();
+  if (err instanceof SettingsError) return c.json({ error: err.message }, err.status);
   console.error("[api error]", err);
   const message = err instanceof Error ? err.message : String(err);
   return c.json({ error: message }, 500);
@@ -65,6 +69,9 @@ app.use("*", async (c, next) => {
   if (path !== "/api" && !path.startsWith("/api/")) {
     return c.env.ASSETS.fetch(c.req.raw);
   }
+  if (c.env.LEDGER_MAINTENANCE === "true") {
+    return c.json({ error: "Paper ledger maintenance is in progress." }, 503);
+  }
   if (!["GET", "HEAD", "OPTIONS"].includes(c.req.method)) {
     const origin = c.req.header("Origin");
     if (origin && origin !== new URL(c.req.url).origin) {
@@ -80,8 +87,9 @@ app.use("*", async (c, next) => {
       return c.json({ error: "This deployment supports paper trading only." }, 400);
     }
   }
-  initDB(c.env);
-  await ensureSettings();
+  const db = createDb(c.env.DB);
+  c.set("db", db);
+  await ensureSettings(db);
   await next();
 });
 
@@ -92,17 +100,17 @@ function envOf(c: { env: Env["Bindings"] }): Record<string, string | undefined> 
 // ── Read endpoints ───────────────────────────────────────────────────
 
 app.get("/api/health", async (c) => {
-  const stats = await getStats();
+  const stats = await getStats(c.get("db"));
   return c.json({ status: "ok", ai: Boolean(c.env.OPENROUTER_API_KEY), ...stats });
 });
 
-app.get("/api/stats", async (c) => c.json(await getStats()));
+app.get("/api/stats", async (c) => c.json(await getStats(c.get("db"))));
 
-app.get("/api/settings", async (c) => c.json(await getSettings()));
+app.get("/api/settings", async (c) => c.json(await getSettings(c.get("db"))));
 
 app.put("/api/settings", async (c) => {
-  const patch = await c.req.json<Partial<Settings>>().catch(() => ({}));
-  return c.json(await updateSettings(patch));
+  const patch: unknown = await c.req.json().catch(() => null);
+  return c.json(await updateSettings(c.get("db"), patch));
 });
 
 app.get("/api/markets", async (c) => {
@@ -116,37 +124,37 @@ app.get("/api/markets", async (c) => {
 });
 
 app.get("/api/signals", async (c) => {
-  const cfg = await getSettings();
+  const cfg = await getSettings(c.get("db"));
   const raw = await fetchGammaMarkets({ limit: 200 });
   return c.json({ signals: findSignals(raw, cfg) });
 });
 
 app.get("/api/trades", async (c) => {
   const limit = Number(c.req.query("limit")) || 200;
-  return c.json({ trades: await listTrades(limit) });
+  return c.json({ trades: await listTrades(c.get("db"), limit) });
 });
 
-app.get("/api/positions", async (c) => c.json({ positions: await listOpenTrades() }));
+app.get("/api/positions", async (c) => c.json({ positions: await listOpenTrades(c.get("db")) }));
 
 // ── Actions ──────────────────────────────────────────────────────────
 
 app.post("/api/cycle", async (c) => {
-  const result = await runCycle(envOf(c));
-  const stats = await getStats();
+  const result = await runCycle(c.get("db"), envOf(c));
+  const stats = await getStats(c.get("db"));
   return c.json({ result, stats });
 });
 
 app.post("/api/mark", async (c) => {
-  const result = await markToMarket();
-  const stats = await getStats();
+  const result = await markToMarket(c.get("db"));
+  const stats = await getStats(c.get("db"));
   return c.json({ result, stats });
 });
 
 app.post("/api/positions/:id/close", async (c) => {
   const id = Number(c.req.param("id"));
-  const trade = await closeTrade(id);
+  const trade = await closeTrade(c.get("db"), id);
   if (!trade) return c.json({ error: "Position not found or already closed." }, 404);
-  return c.json({ trade, stats: await getStats() });
+  return c.json({ trade, stats: await getStats(c.get("db")) });
 });
 
 app.post("/api/analyze", async (c) => {
@@ -156,9 +164,16 @@ app.post("/api/analyze", async (c) => {
 });
 
 app.post("/api/reset", async (c) => {
-  const { bankroll } = await c.req.json<{ bankroll?: number }>().catch(() => ({}) as { bankroll?: number });
-  await resetPaper(bankroll && bankroll > 0 ? bankroll : 1000);
-  return c.json({ ok: true, stats: await getStats() });
+  const body = await c.req.json<{ bankroll?: unknown; paperEpoch?: unknown }>().catch(() => null);
+  if (!body || typeof body.bankroll !== "number" || !Number.isFinite(body.bankroll) || body.bankroll <= 0 ||
+      body.bankroll > 1_000_000_000 || Math.round(body.bankroll * 100) / 100 !== body.bankroll ||
+      !Number.isSafeInteger(body.paperEpoch) || (body.paperEpoch as number) < 0) {
+    return c.json({ error: "An explicit positive finite bankroll and nonnegative integer paperEpoch are required." }, 400);
+  }
+  if (!await resetPaper(c.get("db"), body.paperEpoch as number, body.bankroll)) {
+    return c.json({ error: "Paper session changed. Reload before resetting." }, 409);
+  }
+  return c.json({ ok: true, stats: await getStats(c.get("db")) });
 });
 
 app.notFound((c) => c.json({ error: "Not found." }, 404));

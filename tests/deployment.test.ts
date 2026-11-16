@@ -9,8 +9,12 @@ function bindings({ rejectDB = false } = {}) {
   const calls = { db: 0, assets: [] as Request[] };
   const statement = {
     bind() { return this; },
-    async run() { return { success: true, meta: {} }; },
-    async first() { return null; },
+    async run() { return { success: true, meta: { changes: 1 } }; },
+    async first() { return {
+      mode: "paper", paper_epoch: 0, revision: 1, bankroll: 1000, kelly_fraction: 0.25,
+      max_positions: 10, max_position_usd: 100, max_exposure_usd: 600, min_volume_usd: 10000,
+      favorite_threshold: 0.75, longshot_min: 0.05, longshot_max: 0.2, ai_gating: 1, kill_switch: 0,
+    }; },
     async all() { return { results: [] }; },
   };
   const env = {
@@ -112,7 +116,7 @@ test("authenticated paper mode remains editable", async () => {
   const response = await app.request("/api/settings", {
     method: "PUT",
     headers: { "Cf-Access-Jwt-Assertion": assertion, "Content-Type": "application/json" },
-    body: JSON.stringify({ mode: "paper" }),
+    body: JSON.stringify({ mode: "paper", revision: 0, paperEpoch: 0 }),
   }, env);
   assert.equal(response.status, 200);
   assert.equal((await response.json()).mode, "paper");
