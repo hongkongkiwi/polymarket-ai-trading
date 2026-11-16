@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { X } from "lucide-react";
-import type { Settings } from "../../shared/types";
+import type { Settings, SettingsPatch } from "../../shared/types";
 import { Button, Zone, Badge } from "./ui";
 
 const FIELDS: { key: keyof Settings; label: string; step?: number; min?: number; max?: number; hint?: string }[] = [
@@ -23,19 +23,27 @@ export function SettingsPanel({
 }: {
   settings: Settings;
   aiAvailable: boolean;
-  onSave: (patch: Partial<Settings>) => Promise<void>;
+  onSave: (patch: SettingsPatch) => Promise<void>;
   onClose: () => void;
 }) {
+  const [baseline] = useState(settings);
   const [draft, setDraft] = useState<Settings>(settings);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const set = (k: keyof Settings, v: number | boolean | string) => setDraft((d) => ({ ...d, [k]: v }));
 
   const save = async () => {
     setSaving(true);
+    setError(null);
     try {
-      await onSave(draft);
+      const changed = Object.fromEntries(Object.entries(draft).filter(([key, value]) =>
+        key !== "revision" && key !== "paperEpoch" && value !== baseline[key as keyof Settings],
+      ));
+      await onSave({ ...changed, revision: baseline.revision, paperEpoch: baseline.paperEpoch });
       onClose();
+    } catch (e) {
+      setError((e as Error).message);
     } finally {
       setSaving(false);
     }
@@ -70,7 +78,7 @@ export function SettingsPanel({
           </div>
           <p className="mt-2 text-[11px] text-muted">
             Paper trades never touch real money. Live execution against the Polymarket CLOB is stubbed behind a wallet
-            secret — see <code className="text-foreground">executor.ts</code>.
+            secret. See <code className="text-foreground">executor.ts</code>.
           </p>
         </Zone>
 
@@ -123,6 +131,7 @@ export function SettingsPanel({
           <p className="mt-2 text-[11px] text-muted">When on, cycles open no new positions.</p>
         </Zone>
 
+        {error && <p role="alert" className="px-5 py-3 text-[13px] text-danger">{error} Close and reopen Strategy to load current settings.</p>}
         <div className="sticky bottom-0 flex justify-end gap-2 border-t border-border bg-surface px-5 py-3">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <Button variant="primary" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save strategy"}</Button>

@@ -1,8 +1,19 @@
-/**
- * Database access. The worker is bound to a D1 database in production and a
- * compatible storage binding in preview; `@clawnify/db` detects which is
- * present and exposes one `query` / `get` / `run` API (params passed as an
- * array). This module re-exports that API and the app's D1 binding type.
- */
+import type { SqlDb } from "./lib/paper-ledger";
+
 export type DB = D1Database;
-export { initDB, query, get, run } from "@clawnify/db";
+
+export function createDb(binding: DB): SqlDb {
+  const prepare = (sql: string, params: unknown[] = []) => binding.prepare(sql).bind(...params);
+  return {
+    async query<T>(sql: string, params?: unknown[]): Promise<T[]> {
+      const result = await prepare(sql, params).all<T>();
+      return result.results;
+    },
+    async get<T>(sql: string, params?: unknown[]): Promise<T | undefined> {
+      return (await prepare(sql, params).first<T>()) ?? undefined;
+    },
+    async run(sql: string, params?: unknown[]): Promise<unknown> {
+      return prepare(sql, params).run();
+    },
+  };
+}

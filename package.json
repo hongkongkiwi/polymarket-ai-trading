@@ -4,9 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler d1 execute polymarket-ai-trading-db --local --file=src/server/schema.sql && concurrently -n ui,api -c cyan,green \"vite\" \"wrangler dev --port 8787\"",
+    "dev": "wrangler d1 execute pm-ai-trading-db --local --file=src/server/schema.sql && wrangler d1 migrations apply pm-ai-trading-db --local && concurrently -n ui,api -c cyan,green \"vite\" \"wrangler dev --port 8787\"",
     "build": "vite build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "for file in tests/*.test.ts; do node tests/run.mjs \"$(basename \"$file\")\" || exit $?; done"
   },
   "dependencies": {
     "@clawnify/db": "^0.4.1",

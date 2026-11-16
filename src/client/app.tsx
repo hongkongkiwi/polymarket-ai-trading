@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Play, RefreshCw, Settings2, Sliders, TrendingUp } from "lucide-react";
-import type { Market, Settings, Signal, Stats, Trade } from "../shared/types";
+import type { Market, Settings, SettingsPatch, Signal, Stats, Trade } from "../shared/types";
 import { api } from "./lib/api";
 import { Button, Card, Zone, Stat, Badge, Chip, Spinner } from "./components/ui";
 import { SignalsTable, PositionsTable, HistoryTable, MarketsTable } from "./components/tables";
@@ -32,7 +32,8 @@ export function App() {
   };
 
   const refreshLedger = useCallback(async () => {
-    const [s, p, t] = await Promise.all([api.stats(), api.positions(), api.trades()]);
+    const [s, p, t, cfg] = await Promise.all([api.stats(), api.positions(), api.trades(), api.settings()]);
+    setSettings(cfg);
     setStats(s);
     setPositions(p);
     setTrades(t);
@@ -112,8 +113,14 @@ export function App() {
     }
   };
 
-  const saveSettings = async (patch: Partial<Settings>) => {
-    const next = await api.saveSettings(patch);
+  const saveSettings = async (patch: SettingsPatch) => {
+    let next: Settings;
+    try {
+      next = await api.saveSettings(patch);
+    } catch (e) {
+      await api.settings().then(setSettings).catch(() => {});
+      throw e;
+    }
     setSettings(next);
     setStats((s) => (s ? { ...s, bankroll: next.bankroll, mode: next.mode } : s));
     setSignals(await api.signals().catch(() => signals));
@@ -121,12 +128,21 @@ export function App() {
   };
 
   const resetPaper = async () => {
-    if (!confirm("Wipe the paper ledger and reset bankroll?")) return;
+    if (!settings) return;
+    const entered = prompt("Starting cash for the new paper session (USD):");
+    if (entered === null) return;
+    const bankroll = Number(entered);
+    if (!entered.trim() || !Number.isFinite(bankroll) || bankroll <= 0) {
+      notify("Enter a positive finite bankroll.", "err");
+      return;
+    }
+    if (!confirm(`Start a new paper session with ${usd(bankroll)}? Current positions will be archived, not settled. All trade history is retained.`)) return;
     try {
-      await api.reset(settings?.bankroll);
+      await api.reset(bankroll, settings.paperEpoch);
       await Promise.all([refreshLedger(), api.signals().then(setSignals).catch(() => {})]);
       notify("Paper ledger reset.");
     } catch (e) {
+      await api.settings().then(setSettings).catch(() => {});
       notify((e as Error).message, "err");
     }
   };
